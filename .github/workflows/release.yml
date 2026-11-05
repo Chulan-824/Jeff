@@ -1,0 +1,86 @@
+name: Release Jeff
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jeff-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+    steps:
+      - name: 获取源码
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 读取并核对发布版本
+        id: version
+        shell: bash
+        run: |
+          JEFF_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)
+          JEFF_TAG="v${JEFF_VERSION}"
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "$JEFF_TAG" ]]; then
+            echo "::error::版本标签必须与 Resources/Info.plist 中的版本一致"
+            exit 1
+          fi
+
+          if git show-ref --verify --quiet "refs/tags/$JEFF_TAG"; then
+            if [[ "$(git rev-parse "refs/tags/$JEFF_TAG^{commit}")" != "$(git rev-parse HEAD)" ]]; then
+              echo "::error::该版本标签已指向其他提交，请更新版本号"
+              exit 1
+            fi
+          fi
+
+          printf 'version=%s\ntag=%s\n' "$JEFF_VERSION" "$JEFF_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 格式检查
+        run: make lint
+
+      - name: 类型检查
+        run: make typecheck
+
+      - name: 构建安装包
+        run: make package
+
+      - name: 核对签名和文件摘要
+        working-directory: dist
+        run: |
+          codesign --verify --strict --verbose=2 Jeff.app
+          shasum -a 256 -c SHA256SUMS.txt
+
+      - name: 上传附件并发布预览版
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          JEFF_VERSION: ${{ steps.version.outputs.version }}
+          JEFF_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$JEFF_TAG" \
+            "dist/Jeff-${JEFF_VERSION}-macos-arm64.zip" \
+            dist/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" \
+            --title "Jeff ${JEFF_VERSION} · 未公证预览版" \
+            --notes-file "docs/releases/${JEFF_TAG}.md" \
+            --draft \
+            --prerelease
+
+          gh release edit "$JEFF_TAG" \
+            --draft=false \
+            --prerelease \
+            --latest=false
