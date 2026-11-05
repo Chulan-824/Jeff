@@ -12,14 +12,16 @@ struct HistoryView: View {
         store.records.filter {
             (!favoritesOnly || $0.isFavorite)
                 && (query.isEmpty
-                    || ($0.input + $0.output + $0.sourceApp).localizedCaseInsensitiveContains(query))
+                    || ($0.input + $0.output + $0.sourceApp + $0.taskDescription
+                        + ($0.context?.relationship ?? "") + ($0.context?.goal ?? ""))
+                        .localizedCaseInsensitiveContains(query))
         }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                TextField("搜索内容或来源应用", text: $query)
+                TextField("搜索内容、动作或背景", text: $query)
                 Toggle("仅收藏", isOn: $favoritesOnly)
                 Button("清空全部") { confirmsClear = true }
                     .disabled(store.records.isEmpty && store.errorMessage == nil)
@@ -41,6 +43,7 @@ struct HistoryView: View {
                             "\(record.sourceApp) · \(record.date.formatted(date: .abbreviated, time: .shortened))"
                         )
                         .font(.caption).foregroundStyle(.secondary)
+                        Text(record.taskDescription).font(.caption).foregroundStyle(.secondary)
                     }
                     .tag(record.id)
                 }
@@ -54,14 +57,36 @@ struct HistoryView: View {
                                 store.toggleFavorite(record.id)
                             }
                             Button("查看结果") { AdvisorCoordinator.shared.restore(record) }
-                            Button("复制") { AdvisorCoordinator.shared.copy(record.output) }
-                            Button("删除") { deleting = record }
+                            Button(record.result?.copyTitle ?? "复制完整结果") {
+                                AdvisorCoordinator.shared.copy(
+                                    record.result?.content ?? record.output)
+                            }
+                            .disabled(record.result?.needsContext == true)
+                            Menu {
+                                Button("复制完整结果") { AdvisorCoordinator.shared.copy(record.output) }
+                                Button("删除", role: .destructive) { deleting = record }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                            }
+                            .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("记录操作")
                         }
                         ScrollView {
                             VStack(alignment: .leading, spacing: 16) {
                                 Text(record.input).foregroundStyle(.secondary)
+                                Text(record.taskDescription).font(.caption).foregroundStyle(
+                                    .secondary)
+                                if let context = record.context {
+                                    if !context.relationship.isEmpty {
+                                        Text("人物关系：\(context.relationship)")
+                                    }
+                                    if !context.goal.isEmpty { Text("沟通目标：\(context.goal)") }
+                                }
                                 Divider()
-                                Text(record.output)
+                                if let result = record.result {
+                                    AdviceResultView(result: result)
+                                } else {
+                                    Text(record.output)
+                                }
                             }
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -71,7 +96,7 @@ struct HistoryView: View {
                 } else {
                     ContentUnavailableView(
                         filtered.isEmpty ? "暂无记录" : "选择一条记录", systemImage: "clock",
-                        description: Text("在分析设置中开启历史后，完整结果会保存在本机。")
+                        description: Text("在使用设置中开启历史后，完整结果会保存在本机。")
                     )
                     .frame(minWidth: 420, maxHeight: .infinity)
                 }

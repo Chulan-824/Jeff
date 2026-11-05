@@ -7,21 +7,52 @@ import SwiftUI
 final class AdvisorCoordinator: ObservableObject {
     static let shared = AdvisorCoordinator()
 
-    @Published var selectedText = ""
-    @Published var output = ""
-    @Published var isStreaming = false
+    @Published private(set) var selectedText = ""
+    @Published private(set) var action: AdviceAction = .auto
+    @Published private(set) var context = AdviceContext()
+    @Published private(set) var result: AdviceResult?
+    @Published private(set) var legacyOutput = ""
+    @Published private(set) var previousResult: AdviceRecord?
+    @Published private(set) var isResultComplete = false
+    @Published private(set) var isStreaming = false
     @Published var errorMessage: String?
+    @Published private(set) var statusMessage: String?
     @Published var needsAccessibilityPermission = false
     @Published private(set) var sourceApp = "手动输入"
+    @Published private(set) var captureKind: CaptureKind? = .manual
     @Published private(set) var recordID: UUID?
+    @Published private(set) var taskID = UUID()
 
     private var panel: AdvisorPanel?
     private var hud: AdvisorPanel?
     private var streamTask: Task<Void, Never>?
     private var hideTask: Task<Void, Never>?
     private var requestID = UUID()
+    private var lastCompleted: AdviceRecord?
     private var isQuiet = false
     private var isCapturing = false
+
+    var output: String { result?.fullText ?? legacyOutput }
+    var primaryText: String { result?.content ?? legacyOutput }
+    var sourceDescription: String {
+        guard let captureKind, captureKind != .manual else { return sourceApp }
+        return sourceApp + " · " + captureKind.title
+    }
+    var canCopyPrimary: Bool {
+        isResultComplete && !isStreaming && result?.needsContext != true && !primaryText.isEmpty
+    }
+    var copyTitle: String { result?.copyTitle ?? "复制完整结果" }
+    var actionDescription: String {
+        if !legacyOutput.isEmpty { return "旧版结果 · 可选择动作重新处理" }
+        if action != .auto { return "本次按「\(action.title)」处理" }
+        if let result { return "本次按「\(result.action.title)」处理 · 自动判断" }
+        return isStreaming ? "正在判断本次用途…" : "自动判断，也可手动选择动作"
+    }
+    var progressTitle: String {
+        guard isStreaming else { return "" }
+        return result.map { "正在\($0.action.title)…" }
+            ?? (action == .auto ? "正在判断用途…" : "正在\(action.title)…")
+    }
 
     static let hotkeySelectionKey = "hotkey.selection"
     static let hotkeySnipKey = "hotkey.snip"
@@ -76,20 +107,29 @@ final class AdvisorCoordinator: ObservableObject {
     func triggerSnip() {
         guard !isCapturing else { return }
         let source = frontmostApp()
+        let sourceApplication = NSWorkspace.shared.frontmostApplication
+        let panelWasVisible = panel?.isVisible == true
+        let hudWasVisible = hud?.isVisible == true
         cancelStreaming()
         let captureID = requestID
         panel?.orderOut(nil)
         hud?.orderOut(nil)
         isCapturing = true
-        SnipController.shared.start { [weak self] text in
+        SnipController.shared.start { [weak self] outcome in
             guard let self else { return }
             self.isCapturing = false
             guard self.requestID == captureID else { return }
-            self.begin(text: text ?? "", source: source)
-            if let text, !text.isEmpty {
+            switch outcome {
+            case .cancelled:
+                sourceApplication?.activate(options: [])
+                if panelWasVisible { self.panel?.showNearMouse(activate: false) }
+                if hudWasVisible { self.hud?.showNearMouse(activate: false) }
+            case .text(let text):
+                self.begin(text: text, source: source, kind: .screenshot)
                 self.startStreaming()
-            } else {
-                self.errorMessage = "未识别到文字，可能已取消、区域无文本或缺少屏幕录制权限。"
+            case .failed(let message):
+                self.begin(text: "", source: source, kind: .screenshot)
+                self.errorMessage = message
             }
         }
     }
@@ -100,14 +140,14 @@ final class AdvisorCoordinator: ObservableObject {
         guard let text = SelectionCapture.grabSelectedText(),
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
-            begin(text: "", source: source)
+            begin(text: "", source: source, kind: .selection)
             errorMessage =
                 needsAccessibilityPermission
-                ? "无法取词。请授权辅助功能，或使用剪贴板分析。"
-                : "没有捕获到选中内容，请先划选文字，或使用剪贴板分析。"
+                ? "无法取词。请授权辅助功能，或使用剪贴板处理。"
+                : "没有捕获到选中内容，请先划选文字，或使用剪贴板处理。"
             return
         }
-        begin(text: text, source: source)
+        begin(text: text, source: source, kind: .selection)
         startStreaming()
     }
 
@@ -116,25 +156,32 @@ final class AdvisorCoordinator: ObservableObject {
         guard let text = NSPasteboard.general.string(forType: .string),
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
-            begin(text: "", source: "剪贴板")
+            begin(text: "", source: source, kind: .clipboard)
             errorMessage = "剪贴板中没有文字，请先复制文本。"
             return
         }
-        begin(text: text, source: "剪贴板 · 触发时应用：\(source)")
+        begin(text: text, source: source, kind: .clipboard)
         startStreaming()
     }
 
-    func showInput() {
-        begin(text: "", source: "手动输入", quiet: false)
-    }
+    func showInput() { begin(text: "", source: "手动输入", kind: .manual, quiet: false) }
 
-    private func begin(text: String, source: String, quiet: Bool? = nil) {
+    private func begin(text: String, source: String, kind: CaptureKind, quiet: Bool? = nil) {
         cancelStreaming()
+        taskID = UUID()
         selectedText = text
         sourceApp = source
-        output = ""
+        captureKind = kind
+        action = .auto
+        context = AdviceContext()
+        result = nil
+        legacyOutput = ""
+        previousResult = nil
+        lastCompleted = nil
+        isResultComplete = false
         recordID = nil
         errorMessage = nil
+        statusMessage = nil
         isQuiet = quiet ?? UserDefaults.standard.bool(forKey: "quietMode")
         if isQuiet {
             panel?.orderOut(nil)
@@ -158,17 +205,39 @@ final class AdvisorCoordinator: ObservableObject {
         isStreaming = false
     }
 
+    func changeAction(_ action: AdviceAction) {
+        guard self.action != action else { return }
+        self.action = action
+        if !selectedText.isEmpty { startStreaming() }
+    }
+
+    func applyInput(_ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        selectedText = text
+        startStreaming()
+    }
+
+    func applyContext(_ context: AdviceContext) {
+        self.context = context
+        if !selectedText.isEmpty { startStreaming() }
+    }
+
     func startStreaming() {
         cancelStreaming()
-        output = ""
+        previousResult = lastCompleted
+        result = nil
+        legacyOutput = ""
+        isResultComplete = false
         errorMessage = nil
+        statusMessage = nil
         recordID = nil
         guard !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "请先输入或选中需要分析的内容。"
+            errorMessage = "请先输入或选中需要处理的内容。"
             return
         }
         guard UserDefaults.standard.object(forKey: "serviceEnabled") as? Bool ?? true else {
-            errorMessage = "分析服务已停用，请在服务设置中开启。"
+            errorMessage = "处理服务已停用，请在服务设置中开启。"
             return
         }
         let model = UserDefaults.standard.string(forKey: "model") ?? "deepseek-chat"
@@ -176,36 +245,50 @@ final class AdvisorCoordinator: ObservableObject {
         let id = requestID
         let input = selectedText
         let source = sourceApp
+        let kind = captureKind
+        let action = action
+        let context = context
         let savesHistory = UserDefaults.standard.bool(forKey: "saveHistory")
         isStreaming = true
         streamTask = Task { [weak self] in
             guard let self else { return }
+            defer { if self.requestID == id { self.isStreaming = false } }
             do {
+                let prompt = try SkillStore.systemPrompt(action: action, context: context)
+                let content = try JSONEncoder().encode(
+                    AdviceInput(originalText: input, context: context))
                 let apiKey = try await KeychainStore.shared.loadAPIKey() ?? ""
                 guard !Task.isCancelled, self.requestID == id else { return }
                 let client = AIClient(apiKey: apiKey, model: model, baseURL: baseURL)
-                _ = try client.validatedEndpoint()
+                var stream = AdviceStream(requestedAction: action)
                 for try await chunk in client.stream(
-                    systemPrompt: SkillStore.systemPrompt(), userContent: input)
+                    systemPrompt: prompt, userContent: String(decoding: content, as: UTF8.self))
                 {
                     guard !Task.isCancelled, self.requestID == id else { return }
-                    self.output += chunk
+                    try stream.append(chunk)
+                    self.result = stream.result
                 }
                 guard !Task.isCancelled, self.requestID == id else { return }
-                guard !self.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw AIClient.ClientError.invalidResponse
-                }
+                let result = try stream.finish()
+                self.result = result
+                self.isResultComplete = true
+                self.isStreaming = false
+                let record = AdviceRecord(
+                    input: input, output: result.fullText, sourceApp: source, model: model,
+                    captureKind: kind, action: action, context: context, result: result)
+                self.lastCompleted = record
                 if savesHistory && UserDefaults.standard.bool(forKey: "saveHistory") {
                     let store = HistoryStore.shared
-                    store.add(input: input, output: self.output, sourceApp: source, model: model)
-                    if let error = store.errorMessage {
-                        self.errorMessage = error
+                    if store.add(record) {
+                        self.recordID = record.id
                     } else {
-                        self.recordID = store.records.first?.id
+                        self.errorMessage = store.errorMessage
                     }
                 }
-                if UserDefaults.standard.bool(forKey: "autoCopyOutput") { self.copyOutput() }
-                if self.isQuiet && self.errorMessage == nil {
+                if !result.needsContext && UserDefaults.standard.bool(forKey: "autoCopyOutput") {
+                    self.copyOutput()
+                }
+                if self.isQuiet && self.errorMessage == nil && !result.needsContext {
                     self.hideTask = Task { [weak self] in
                         try? await Task.sleep(for: .seconds(12))
                         guard !Task.isCancelled else { return }
@@ -216,17 +299,36 @@ final class AdvisorCoordinator: ObservableObject {
                 guard !Task.isCancelled, self.requestID == id else { return }
                 self.errorMessage = error.localizedDescription
             }
-            guard self.requestID == id else { return }
-            self.isStreaming = false
         }
+    }
+
+    func stop() {
+        cancelStreaming()
+        statusMessage = "已停止生成，未完成的内容未复制或保存。"
     }
 
     func regenerate() { startStreaming() }
 
     func restore(_ record: AdviceRecord) {
-        begin(text: record.input, source: record.sourceApp, quiet: false)
-        output = record.output
-        recordID = record.id
+        begin(
+            text: record.input, source: record.sourceApp, kind: record.captureKind ?? .manual,
+            quiet: false)
+        captureKind = record.captureKind
+        action = record.action ?? .auto
+        context = record.context ?? AdviceContext()
+        result = record.result
+        legacyOutput = record.result == nil ? record.output : ""
+        isResultComplete = true
+        lastCompleted = record
+        recordID =
+            HistoryStore.shared.records.contains(where: { $0.id == record.id }) ? record.id : nil
+    }
+
+    func restorePrevious() {
+        guard let previous = previousResult else { return }
+        let replacement = isResultComplete ? lastCompleted : nil
+        restore(previous)
+        previousResult = replacement
     }
 
     func dismiss() {
@@ -235,7 +337,17 @@ final class AdvisorCoordinator: ObservableObject {
         hud?.orderOut(nil)
     }
 
-    func copyOutput() { copy(output) }
+    func copyPrimary() {
+        guard canCopyPrimary else { return }
+        copy(primaryText)
+        statusMessage = "已复制"
+    }
+
+    func copyOutput() {
+        guard isResultComplete, !isStreaming, !output.isEmpty else { return }
+        copy(output)
+        statusMessage = "已复制完整结果"
+    }
 
     func copy(_ text: String) {
         guard !text.isEmpty else { return }
@@ -246,7 +358,8 @@ final class AdvisorCoordinator: ObservableObject {
     private func ensurePanel() -> AdvisorPanel {
         if let panel { return panel }
         let panel = AdvisorPanel(
-            contentView: NSHostingView(rootView: AdvisorView(coordinator: self)))
+            contentView: NSHostingView(rootView: AdvisorView(coordinator: self)),
+            size: NSSize(width: 520, height: 560))
         panel.onClose = { [weak self] in self?.cancelStreaming() }
         self.panel = panel
         return panel
@@ -256,7 +369,7 @@ final class AdvisorCoordinator: ObservableObject {
         if let hud { return hud }
         let hud = AdvisorPanel(
             contentView: NSHostingView(rootView: AdvisorHUD(coordinator: self)),
-            size: NSSize(width: 360, height: 220))
+            size: NSSize(width: 380, height: 250))
         hud.onClose = { [weak self] in self?.cancelStreaming() }
         self.hud = hud
         return hud

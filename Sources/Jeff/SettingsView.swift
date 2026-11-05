@@ -21,7 +21,7 @@ struct SettingsView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             groupLabel("顾问")
-            sidebarRow(icon: "gearshape", title: "分析设置", page: .translateSettings)
+            sidebarRow(icon: "gearshape", title: "使用设置", page: .translateSettings)
             sidebarRow(icon: "cube", title: "服务", page: .service)
 
             groupLabel("通用")

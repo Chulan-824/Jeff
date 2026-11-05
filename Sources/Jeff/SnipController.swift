@@ -1,8 +1,6 @@
 import AppKit
 
-/// Screenshot-word-grab orchestrator, mirroring Bob's Snip + OCRWindowController:
-/// capture screens via CGWindowList (no Screen Recording permission needed),
-/// present a dimmed overlay per screen, crop the dragged rect, run Vision OCR.
+/// Capture the selected screen region and recognize text locally with Vision.
 @MainActor
 final class SnipController {
     static let shared = SnipController()
@@ -11,22 +9,27 @@ final class SnipController {
     private var captures: [ObjectIdentifier: CGImage] = [:]
     private var quartzRects: [ObjectIdentifier: CGRect] = [:]
 
-    /// Begin snip mode. Completion receives recognized text (nil = cancelled/empty).
-    func start(completion: @escaping (String?) -> Void) {
+    enum Outcome {
+        case text(String)
+        case cancelled
+        case failed(String)
+    }
+
+    func start(completion: @escaping (Outcome) -> Void) {
         let screens = NSScreen.screens
         guard !screens.isEmpty else {
-            completion(nil)
+            completion(.failed("没有可用屏幕，请稍后重试。"))
             return
         }
         let primaryHeight = screens.first?.frame.height ?? 0
 
         var pending = 0
         var finished = false
-        let done: (String?) -> Void = { text in
+        let done: (Outcome) -> Void = { outcome in
             guard !finished else { return }
             finished = true
             self.teardown()
-            completion(text)
+            completion(outcome)
         }
 
         for screen in screens {
@@ -69,7 +72,7 @@ final class SnipController {
 
             view.onFinish = { [weak self] viewRect in
                 guard let self else {
-                    done(nil)
+                    done(.cancelled)
                     return
                 }
                 let screenRect = window.convertToScreen(viewRect)
@@ -79,27 +82,28 @@ final class SnipController {
                     qRect: qRect,
                     primaryHeight: primaryHeight)
                 guard let cropped else {
-                    done(nil)
+                    done(.failed("无法取得所选区域，请重新框选。"))
                     return
                 }
                 Task {
                     do {
-                        let text = try await AppleOCR.recognize(cropped)
-                        done(text.isEmpty ? nil : text)
+                        let recognized = try await AppleOCR.recognize(cropped)
+                        let text = recognized.trimmingCharacters(in: .whitespacesAndNewlines)
+                        done(text.isEmpty ? .failed("未识别到文字，请框选包含文字的区域。") : .text(text))
                     } catch {
                         NSLog("Jeff: OCR failed: \(error)")
-                        done(nil)
+                        done(.failed("文字识别失败，请重新截图。"))
                     }
                 }
             }
-            view.onCancel = { done(nil) }
+            view.onCancel = { done(.cancelled) }
 
             windows.append(window)
             window.makeKeyAndOrderFront(nil)
         }
 
         if pending == 0 {
-            done(nil)
+            done(.failed("无法截取屏幕，请检查屏幕录制权限后重试。"))
             return
         }
         NSApp.activate(ignoringOtherApps: true)

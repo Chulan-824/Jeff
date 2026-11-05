@@ -10,7 +10,7 @@ struct TranslateSettingsPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("分析设置")
+            Text("使用设置")
                 .font(.system(size: 20, weight: .bold))
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
@@ -20,12 +20,12 @@ struct TranslateSettingsPage: View {
                     sectionTitle("全局快捷键")
                     VStack(spacing: 0) {
                         shortcutRow(
-                            "划词分析", description: "选中一段聊天或场景描述，按下快捷键获取建议。",
+                            "划词处理", description: "选中内容后立即处理，可在结果浮窗切换改写、回复或分析。",
                             shortcut: coordinator.selectionShortcut,
                             onRecord: coordinator.saveSelectionShortcut)
                         separator
                         shortcutRow(
-                            "截图取词分析", shortcut: coordinator.snipShortcut,
+                            "截图取词", shortcut: coordinator.snipShortcut,
                             onRecord: coordinator.saveSnipShortcut)
                     }
                     .background(groupBackground, in: RoundedRectangle(cornerRadius: 9))
@@ -33,16 +33,18 @@ struct TranslateSettingsPage: View {
                     sectionTitle("结果与记录")
                     VStack(alignment: .leading, spacing: 12) {
                         Toggle("静默模式", isOn: $quietMode)
-                        Text("划词、截图和剪贴板分析只显示小浮窗，不主动切换焦点。完成后 12 秒隐藏，可从菜单栏查看完整结果。")
+                        Text("取词后只显示小浮窗，不主动切换焦点。完成后 12 秒隐藏；需要补充信息或发生错误时保留，展开后可切换动作和补背景。")
                             .font(.caption).foregroundStyle(.secondary)
                         Toggle("完整结果自动复制到剪贴板", isOn: $autoCopy)
                         Toggle("保存本机历史", isOn: $saveHistory)
-                        Text("默认关闭。开启后保存原文、建议、模型、时间和来源应用；保留最近 100 条普通记录，收藏单独保留。关闭后已有记录仍可查看和删除。")
-                            .font(.caption).foregroundStyle(.secondary)
+                        Text(
+                            "默认关闭。开启后保存原文、结果、动作、补充背景、模型、时间和来源应用；保留最近 100 条普通记录，收藏单独保留。关闭后已有记录仍可查看和删除。"
+                        )
+                        .font(.caption).foregroundStyle(.secondary)
                         Toggle("OCR 合并同段落换行", isOn: $mergeOCRLines)
                         Text("适合横排单栏截图。聊天气泡、多栏或竖排文字可关闭合并。")
                             .font(.caption).foregroundStyle(.secondary)
-                        Text("剪贴板分析、手动输入和历史收藏可从菜单栏打开。")
+                        Text("剪贴板处理、手动输入和历史收藏可从菜单栏打开。新一次取词恢复自动模式，清空本次关系和目标。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(12)

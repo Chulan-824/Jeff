@@ -17,7 +17,7 @@ struct MenuBarMenu: View {
             coordinator.trigger()
         } label: {
             Label(
-                "分析选中文字  \(coordinator.selectionShortcut?.display ?? "")",
+                "处理选中文字  \(coordinator.selectionShortcut?.display ?? "")",
                 systemImage: "text.magnifyingglass")
         }
 
@@ -25,7 +25,7 @@ struct MenuBarMenu: View {
             coordinator.triggerSnip()
         } label: {
             Label(
-                "截图取词分析  \(coordinator.snipShortcut?.display ?? "")",
+                "截图取词  \(coordinator.snipShortcut?.display ?? "")",
                 systemImage: "viewfinder")
         }
 
@@ -40,8 +40,8 @@ struct MenuBarMenu: View {
 
         Divider()
 
-        Button("分析剪贴板文字", action: coordinator.triggerClipboard)
-        Button("输入内容分析…", action: coordinator.showInput)
+        Button("处理剪贴板文字", action: coordinator.triggerClipboard)
+        Button("输入内容…", action: coordinator.showInput)
         Button("显示上次结果", action: coordinator.showResult)
         Button("历史与收藏…") {
             openWindow(id: "history")

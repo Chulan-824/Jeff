@@ -116,7 +116,7 @@ struct ServicePage: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("分析服务").font(.title2).bold()
+                    Text("处理服务").font(.title2).bold()
                     Text("配置一个 OpenAI 兼容的 Chat Completions 服务。")
                         .font(.callout).foregroundStyle(.secondary)
                 }
@@ -154,7 +154,7 @@ struct ServicePage: View {
                     }
                     .accessibilityLabel(showsAPIKey ? "隐藏 API Key" : "显示 API Key")
                 }
-                Text("密钥仅存入系统钥匙串。分析内容和顾问提示词会发送到这里配置的服务地址。")
+                Text("密钥仅存入系统钥匙串。原文、补充背景和沟通提示词会发送到这里配置的服务地址。")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("验证连接") { config.testConnection() }.disabled(config.isTesting)

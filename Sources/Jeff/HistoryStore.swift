@@ -8,6 +8,16 @@ struct AdviceRecord: Codable, Identifiable {
     var sourceApp: String
     var model: String
     var isFavorite = false
+    var captureKind: CaptureKind?
+    var action: AdviceAction?
+    var context: AdviceContext?
+    var result: AdviceResult?
+
+    var taskDescription: String {
+        guard let action else { return "旧版结果" }
+        let title = action == .auto ? "自动 → \(result?.action.title ?? "处理")" : action.title
+        return title + " · " + (context?.scene.title ?? "通用")
+    }
 }
 
 @MainActor
@@ -33,10 +43,10 @@ final class HistoryStore: ObservableObject {
         }
     }
 
-    func add(input: String, output: String, sourceApp: String, model: String) {
-        guard !loadFailed else { return }
-        let record = AdviceRecord(input: input, output: output, sourceApp: sourceApp, model: model)
-        persist(limited([record] + records))
+    @discardableResult
+    func add(_ record: AdviceRecord) -> Bool {
+        guard !loadFailed else { return false }
+        return persist(limited([record] + records))
     }
 
     func toggleFavorite(_ id: UUID) {
