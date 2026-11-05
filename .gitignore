@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+.dev-cert/
+dist/
+*.app/
+*.zip
+*.dmg
+.env
+.env.*
+*.p12
+*.p8
+*.key
+*.pem
+analysis/
