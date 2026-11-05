@@ -1,0 +1,104 @@
+name: Release Jeff
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "发布版本号，不含 v"
+        required: true
+        default: "1.0.1"
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jeff-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+    steps:
+      - name: 获取源码
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 设置发布版本
+        id: version
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            JEFF_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            JEFF_VERSION="$REQUESTED_VERSION"
+          fi
+
+          if [[ ! "$JEFF_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::版本号格式应为 1.0.1，不包含 v"
+            exit 1
+          fi
+
+          JEFF_TAG="v${JEFF_VERSION}"
+
+          if git show-ref --verify --quiet "refs/tags/$JEFF_TAG"; then
+            if [[ "$(git rev-parse "refs/tags/$JEFF_TAG^{commit}")" != "$(git rev-parse HEAD)" ]]; then
+              echo "::error::该版本标签已指向其他提交，请使用新版本号"
+              exit 1
+            fi
+          fi
+
+          JEFF_BUILD=$((GITHUB_RUN_NUMBER + 1))
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $JEFF_VERSION" Resources/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $JEFF_BUILD" Resources/Info.plist
+
+          printf 'version=%s\ntag=%s\n' "$JEFF_VERSION" "$JEFF_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 格式检查
+        run: make lint
+
+      - name: 类型检查
+        run: make typecheck
+
+      - name: 构建安装包
+        run: make package
+
+      - name: 核对签名和文件摘要
+        working-directory: dist
+        run: |
+          codesign --verify --strict --verbose=2 Jeff.app
+          shasum -a 256 -c SHA256SUMS.txt
+
+      - name: 上传附件并发布预览版
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          JEFF_VERSION: ${{ steps.version.outputs.version }}
+          JEFF_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$JEFF_TAG" \
+            "dist/Jeff-${JEFF_VERSION}-macos-arm64.zip" \
+            dist/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" \
+            --title "Jeff ${JEFF_VERSION} · 未公证预览版" \
+            --generate-notes \
+            --notes "支持 macOS 14 及以上的 Apple Silicon Mac。此版本使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。" \
+            --draft \
+            --prerelease
+
+          gh release edit "$JEFF_TAG" \
+            --draft=false \
+            --prerelease \
+            --latest=false
