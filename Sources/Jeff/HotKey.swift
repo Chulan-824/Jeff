@@ -3,7 +3,7 @@ import Carbon
 
 /// Global hotkeys via Carbon RegisterEventHotKey — works without any permission
 /// and independent of app focus.
-///   ⌥⌘D → 划词分析   ⌥⌘S → 截图取词
+///   ⌥D → 划词分析   ⌥S → 截图取词
 final class GlobalHotKey {
     static let shared = GlobalHotKey()
 
@@ -17,7 +17,7 @@ final class GlobalHotKey {
     func register(
         id: UInt32,
         keyCode: UInt32,
-        modifiers: UInt32 = UInt32(optionKey | cmdKey),
+        modifiers: UInt32 = UInt32(optionKey),
         action: @escaping () -> Void
     ) {
         handlers[id] = action

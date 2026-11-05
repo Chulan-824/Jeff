@@ -56,21 +56,38 @@ final class AdvisorCoordinator: ObservableObject {
 
     static let hotkeySelectionKey = "hotkey.selection"
     static let hotkeySnipKey = "hotkey.snip"
+    private static let defaultSelectionShortcut = RecordedShortcut(
+        keyCode: 0x02, modifiers: UInt32(optionKey))
+    private static let defaultSnipShortcut = RecordedShortcut(
+        keyCode: 0x01, modifiers: UInt32(optionKey))
 
     var selectionShortcut: RecordedShortcut? {
         RecordedShortcut.load(
-            Self.hotkeySelectionKey,
-            default: RecordedShortcut(keyCode: 0x02, modifiers: UInt32(optionKey | cmdKey)))
+            Self.hotkeySelectionKey, default: Self.defaultSelectionShortcut)
     }
     var snipShortcut: RecordedShortcut? {
         RecordedShortcut.load(
-            Self.hotkeySnipKey,
-            default: RecordedShortcut(keyCode: 0x01, modifiers: UInt32(optionKey | cmdKey)))
+            Self.hotkeySnipKey, default: Self.defaultSnipShortcut)
     }
 
     func applyHotkeys() {
         GlobalHotKey.shared.unregister(id: 1)
         GlobalHotKey.shared.unregister(id: 2)
+        for (key, replacement, previousModifiers) in [
+            (
+                Self.hotkeySelectionKey, Self.defaultSelectionShortcut,
+                [UInt32(optionKey | cmdKey), UInt32(controlKey | optionKey | cmdKey)]
+            ),
+            (Self.hotkeySnipKey, Self.defaultSnipShortcut, [UInt32(optionKey | cmdKey)]),
+        ] {
+            guard let shortcut = RecordedShortcut.load(key) else { continue }
+            if shortcut.conflictsWithDock
+                || (shortcut.keyCode == replacement.keyCode
+                    && previousModifiers.contains(shortcut.modifiers))
+            {
+                RecordedShortcut.save(replacement, forKey: key)
+            }
+        }
         if let shortcut = selectionShortcut {
             GlobalHotKey.shared.register(
                 id: 1, keyCode: shortcut.keyCode, modifiers: shortcut.modifiers
@@ -89,10 +106,12 @@ final class AdvisorCoordinator: ObservableObject {
     }
 
     func saveSelectionShortcut(_ shortcut: RecordedShortcut?) {
+        guard shortcut?.conflictsWithDock != true else { return }
         RecordedShortcut.save(shortcut, forKey: Self.hotkeySelectionKey)
         applyHotkeys()
     }
     func saveSnipShortcut(_ shortcut: RecordedShortcut?) {
+        guard shortcut?.conflictsWithDock != true else { return }
         RecordedShortcut.save(shortcut, forKey: Self.hotkeySnipKey)
         applyHotkeys()
     }
@@ -257,9 +276,11 @@ final class AdvisorCoordinator: ObservableObject {
                 let prompt = try SkillStore.systemPrompt(action: action, context: context)
                 let content = try JSONEncoder().encode(
                     AdviceInput(originalText: input, context: context))
-                let apiKey = try await KeychainStore.shared.loadAPIKey() ?? ""
+                let credentials = try await CredentialStore.shared.load()
                 guard !Task.isCancelled, self.requestID == id else { return }
-                let client = AIClient(apiKey: apiKey, model: model, baseURL: baseURL)
+                if let notice = credentials.notice { self.statusMessage = notice }
+                let client = AIClient(
+                    apiKey: credentials.apiKey ?? "", model: model, baseURL: baseURL)
                 var stream = AdviceStream(requestedAction: action)
                 for try await chunk in client.stream(
                     systemPrompt: prompt, userContent: String(decoding: content, as: UTF8.self))

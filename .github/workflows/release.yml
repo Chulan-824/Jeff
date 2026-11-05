@@ -6,7 +6,7 @@ on:
       version:
         description: "发布版本号，不含 v"
         required: true
-        default: "1.0.1"
+        default: "1.0.2"
         type: string
   push:
     tags:
@@ -47,7 +47,7 @@ jobs:
           fi
 
           if [[ ! "$JEFF_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::版本号格式应为 1.0.1，不包含 v"
+            echo "::error::版本号格式应为 1.0.2，不包含 v"
             exit 1
           fi
 
@@ -75,10 +75,11 @@ jobs:
       - name: 构建安装包
         run: make package
 
-      - name: 核对签名和文件摘要
+      - name: 核对签名、磁盘映像和文件摘要
         working-directory: dist
         run: |
           codesign --verify --strict --verbose=2 Jeff.app
+          hdiutil verify "Jeff-${{ steps.version.outputs.version }}-macos-arm64.dmg"
           shasum -a 256 -c SHA256SUMS.txt
 
       - name: 上传附件并发布预览版
@@ -89,7 +90,7 @@ jobs:
           JEFF_TAG: ${{ steps.version.outputs.tag }}
         run: |
           gh release create "$JEFF_TAG" \
-            "dist/Jeff-${JEFF_VERSION}-macos-arm64.zip" \
+            "dist/Jeff-${JEFF_VERSION}-macos-arm64.dmg" \
             dist/SHA256SUMS.txt \
             --target "$GITHUB_SHA" \
             --title "Jeff ${JEFF_VERSION} · 未公证预览版" \

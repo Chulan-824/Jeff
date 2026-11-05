@@ -84,10 +84,17 @@ private struct AboutPage: View {
     var body: some View {
         VStack(spacing: 12) {
             Spacer()
-            Text("J")
-                .font(.system(size: 40, weight: .bold))
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 96, height: 96)
+                .accessibilityLabel("Jeff 应用图标")
             Text("Jeff").font(.title3).bold()
-            Text("1.0.0").font(.callout).foregroundStyle(.secondary)
+            Text(
+                Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+                    ?? "未知版本"
+            )
+            .font(.callout).foregroundStyle(.secondary)
             Text("划词 / 截图 / 剪贴板 → AI 服务 + Jeff")
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()

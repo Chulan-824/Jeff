@@ -6,9 +6,10 @@ VERSION  := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionStrin
 SIGN_IDENTITY ?= -
 SIGN_OPTIONS ?=
 DIST_DIR := dist
-ARCHIVE := $(APP_NAME)-$(VERSION)-macos-arm64.zip
+DISK_IMAGE := $(APP_NAME)-$(VERSION)-macos-arm64.dmg
+DMGBUILD := .build/dmg-venv/bin/dmgbuild
 
-.PHONY: build bundle install run package lint typecheck clean
+.PHONY: build bundle install run dmg package lint typecheck clean
 
 build:
 	mkdir -p .build
@@ -32,10 +33,17 @@ install: bundle
 run: bundle
 	open $(APP_DIR)
 
-package:
-	$(MAKE) bundle APP_DIR=$(DIST_DIR)/$(APP_NAME).app
-	ditto -c -k --sequesterRsrc --keepParent $(DIST_DIR)/$(APP_NAME).app $(DIST_DIR)/$(ARCHIVE)
-	cd $(DIST_DIR) && shasum -a 256 $(ARCHIVE) > SHA256SUMS.txt
+$(DMGBUILD): Resources/DMG/requirements.txt
+	python3 -m venv .build/dmg-venv
+	.build/dmg-venv/bin/python -m pip install --disable-pip-version-check -r $<
+	touch $(DMGBUILD)
+
+dmg: $(DMGBUILD)
+	$(MAKE) bundle APP_DIR="$(DIST_DIR)/$(APP_NAME).app"
+	$(DMGBUILD) -s Resources/DMG/settings.py -D app="$(DIST_DIR)/$(APP_NAME).app" "$(APP_NAME)" "$(DIST_DIR)/$(DISK_IMAGE)"
+
+package: dmg
+	cd "$(DIST_DIR)" && shasum -a 256 "$(DISK_IMAGE)" > SHA256SUMS.txt
 
 lint:
 	xcrun swift-format lint --strict --configuration '{"indentation":{"spaces":4}}' $(SOURCES)

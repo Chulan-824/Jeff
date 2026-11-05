@@ -7,6 +7,10 @@ struct RecordedShortcut: Codable {
     var keyCode: UInt32
     var modifiers: UInt32
 
+    var conflictsWithDock: Bool {
+        keyCode == 0x02 && modifiers == UInt32(optionKey | cmdKey)
+    }
+
     var display: String {
         var s = ""
         if modifiers & UInt32(controlKey) != 0 { s += "⌃" }
