@@ -2,6 +2,12 @@ name: Release Jeff
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "发布版本号，不含 v"
+        required: true
+        default: "1.0.1"
+        type: string
   push:
     tags:
       - "v*"
@@ -28,24 +34,35 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: 读取并核对发布版本
+      - name: 设置发布版本
         id: version
         shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          JEFF_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)
-          JEFF_TAG="v${JEFF_VERSION}"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            JEFF_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            JEFF_VERSION="$REQUESTED_VERSION"
+          fi
 
-          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "$JEFF_TAG" ]]; then
-            echo "::error::版本标签必须与 Resources/Info.plist 中的版本一致"
+          if [[ ! "$JEFF_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::版本号格式应为 1.0.1，不包含 v"
             exit 1
           fi
 
+          JEFF_TAG="v${JEFF_VERSION}"
+
           if git show-ref --verify --quiet "refs/tags/$JEFF_TAG"; then
             if [[ "$(git rev-parse "refs/tags/$JEFF_TAG^{commit}")" != "$(git rev-parse HEAD)" ]]; then
-              echo "::error::该版本标签已指向其他提交，请更新版本号"
+              echo "::error::该版本标签已指向其他提交，请使用新版本号"
               exit 1
             fi
           fi
+
+          JEFF_BUILD=$((GITHUB_RUN_NUMBER + 1))
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $JEFF_VERSION" Resources/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $JEFF_BUILD" Resources/Info.plist
 
           printf 'version=%s\ntag=%s\n' "$JEFF_VERSION" "$JEFF_TAG" >> "$GITHUB_OUTPUT"
 
@@ -76,7 +93,8 @@ jobs:
             dist/SHA256SUMS.txt \
             --target "$GITHUB_SHA" \
             --title "Jeff ${JEFF_VERSION} · 未公证预览版" \
-            --notes-file "docs/releases/${JEFF_TAG}.md" \
+            --generate-notes \
+            --notes "支持 macOS 14 及以上的 Apple Silicon Mac。此版本使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。" \
             --draft \
             --prerelease
 
