@@ -10,8 +10,8 @@ private final class ServiceConfig: ObservableObject {
     @Published private(set) var isTesting = false
     @Published private(set) var isLoading = false
     @Published private(set) var isSaving = false
-    @Published private(set) var canAccessKeychain = false
-    private var saved = [String]()
+    @Published private(set) var canAccessCredentials = false
+    private var saved = ["", "", ""]
     private var testTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
 
@@ -24,17 +24,19 @@ private final class ServiceConfig: ObservableObject {
         cancelPendingWork()
         model = UserDefaults.standard.string(forKey: "model") ?? "deepseek-chat"
         baseURL = UserDefaults.standard.string(forKey: "baseURL") ?? "https://api.deepseek.com"
-        canAccessKeychain = false
+        saved = ["", model, baseURL]
+        canAccessCredentials = false
         isLoading = true
-        status = "正在读取钥匙串，请留意系统的访问授权提示…"
+        status = "正在读取本机密钥；首次迁移旧版配置时可能出现钥匙串授权提示…"
         loadTask = Task { [weak self] in
             do {
-                let key = try await KeychainStore.shared.loadAPIKey() ?? ""
+                let credentials = try await CredentialStore.shared.load()
                 guard !Task.isCancelled, let self else { return }
+                let key = credentials.apiKey ?? ""
                 self.apiKey = key
-                self.canAccessKeychain = true
+                self.canAccessCredentials = true
                 self.saved = [key, self.model, self.baseURL]
-                self.status = nil
+                self.status = credentials.notice
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.status = error.localizedDescription
@@ -52,7 +54,7 @@ private final class ServiceConfig: ObservableObject {
     }
 
     func save() {
-        guard canAccessKeychain, !isBusy else { return }
+        guard canAccessCredentials, !isBusy else { return }
         apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         model = model.trimmingCharacters(in: .whitespacesAndNewlines)
         baseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -62,18 +64,35 @@ private final class ServiceConfig: ObservableObject {
             let model = model
             let baseURL = baseURL
             isSaving = true
-            status = "正在保存到钥匙串…"
+            status = "正在保存到本机…"
             Task {
                 do {
-                    try await KeychainStore.shared.save(apiKey: key)
+                    let notice = try await CredentialStore.shared.save(apiKey: key)
                     UserDefaults.standard.set(model, forKey: "model")
                     UserDefaults.standard.set(baseURL, forKey: "baseURL")
                     saved = [key, model, baseURL]
-                    status = "已保存"
+                    status = notice ?? "已保存到本机"
                 } catch { status = error.localizedDescription }
                 isSaving = false
             }
         } catch { status = error.localizedDescription }
+    }
+
+    func clearAPIKey() {
+        guard !isBusy else { return }
+        cancelPendingWork()
+        isSaving = true
+        status = "正在清除密钥…"
+        Task {
+            do {
+                let notice = try await CredentialStore.shared.clearAPIKey()
+                apiKey = ""
+                saved[0] = ""
+                canAccessCredentials = true
+                status = notice ?? "密钥已清除"
+            } catch { status = error.localizedDescription }
+            isSaving = false
+        }
     }
 
     func cancelPendingWork() {
@@ -111,6 +130,7 @@ struct ServicePage: View {
     @AppStorage("serviceEnabled") private var enabled = true
     @StateObject private var config = ServiceConfig()
     @State private var showsAPIKey = false
+    @State private var confirmsClearAPIKey = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -154,10 +174,11 @@ struct ServicePage: View {
                     }
                     .accessibilityLabel(showsAPIKey ? "隐藏 API Key" : "显示 API Key")
                 }
-                Text("密钥仅存入系统钥匙串。原文、补充背景和沟通提示词会发送到这里配置的服务地址。")
+                Text("密钥保存在本机应用数据目录，不额外加密。原文、补充背景和沟通提示词会发送到这里配置的服务地址。")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("验证连接") { config.testConnection() }.disabled(config.isTesting)
+                    Button("清除密钥", role: .destructive) { confirmsClearAPIKey = true }
                     if config.isBusy { ProgressView().controlSize(.small) }
                 }
                 if let status = config.status {
@@ -167,20 +188,24 @@ struct ServicePage: View {
             .formStyle(.grouped)
             .disabled(config.isBusy)
             HStack {
-                if !config.canAccessKeychain {
-                    Button("重新读取钥匙串") { config.load() }.disabled(config.isBusy)
-                }
+                Button("重新读取") { config.load() }.disabled(config.isBusy)
                 if config.isTesting { Button("停止验证") { config.cancelPendingWork() } }
                 Spacer()
                 Button("撤销") { config.load() }.disabled(!config.isDirty || config.isBusy)
                 Button("保存") { config.save() }
-                    .disabled(!config.isDirty || config.isBusy || !config.canAccessKeychain)
+                    .disabled(!config.isDirty || config.isBusy || !config.canAccessCredentials)
                     .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .alert("清除 API Key？", isPresented: $confirmsClearAPIKey) {
+            Button("取消", role: .cancel) {}
+            Button("清除密钥", role: .destructive) { config.clearAPIKey() }
+        } message: {
+            Text("将清空本机保存及当前填写的密钥，并清理旧版钥匙串记录。模型、服务地址和历史记录会保留。请先退出仍在运行的旧版 Jeff。")
+        }
         .onAppear { config.load() }
         .onDisappear { config.cancelPendingWork() }
     }

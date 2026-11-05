@@ -257,9 +257,11 @@ final class AdvisorCoordinator: ObservableObject {
                 let prompt = try SkillStore.systemPrompt(action: action, context: context)
                 let content = try JSONEncoder().encode(
                     AdviceInput(originalText: input, context: context))
-                let apiKey = try await KeychainStore.shared.loadAPIKey() ?? ""
+                let credentials = try await CredentialStore.shared.load()
                 guard !Task.isCancelled, self.requestID == id else { return }
-                let client = AIClient(apiKey: apiKey, model: model, baseURL: baseURL)
+                if let notice = credentials.notice { self.statusMessage = notice }
+                let client = AIClient(
+                    apiKey: credentials.apiKey ?? "", model: model, baseURL: baseURL)
                 var stream = AdviceStream(requestedAction: action)
                 for try await chunk in client.stream(
                     systemPrompt: prompt, userContent: String(decoding: content, as: UTF8.self))
