@@ -24,7 +24,9 @@ Jeff 是一个 macOS 菜单栏沟通助手。选中文字、框选聊天截图�
 
 [下载预览版](https://github.com/Chulan-824/Jeff/releases) · [反馈问题](https://github.com/Chulan-824/Jeff/issues)
 
-下载 `Jeff-版本号-macos-arm64.zip`，解压后将 `Jeff.app` 拖入“应用程序”目录，再双击打开。启动后常驻菜单栏，可从图标菜单进入设置。
+下载并双击 `Jeff-版本号-macos-arm64.dmg`，在打开的安装窗口中，将左侧的 `Jeff.app` 拖到右侧“Applications”文件夹。复制完成后，从“应用程序”打开 Jeff，再推出安装磁盘。启动后常驻菜单栏，可从图标菜单进入设置。
+
+更新前请先退出正在运行的 Jeff；Finder 提示同名应用时，确认后替换。旧版 Release 的 ZIP 仍需解压后手动将应用拖入“应用程序”。
 
 当前发布的是预览版，使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。macOS 可能阻止首次打开。确认下载来源后，可按系统“隐私与安全性”中的提示处理；若组织策略禁止运行，请遵循设备管理要求。
 
@@ -124,7 +126,9 @@ make bundle
 make package
 ```
 
-产物位于 `dist/`，包含 `Jeff.app`、按版本命名的 ZIP 和 `SHA256SUMS.txt`。ZIP 与校验文件用于上传 GitHub Releases，构建产物不提交到 Git。
+首次打包需要 Python 3.10 及以上和网络连接，会在 `.build/dmg-venv/` 中安装固定版本的 `dmgbuild`，仅用于生成安装窗口布局，不会进入应用。打包过程无需操作 Finder，也无需授予自动化权限。
+
+产物位于 `dist/`，包含 `Jeff.app`、按版本命名的 DMG 和 `SHA256SUMS.txt`。DMG 内提供应用图标、指向“应用程序”的入口和中文拖拽提示。DMG 与校验文件用于上传 GitHub Releases，构建产物不提交到 Git。仅需生成 DMG 时可执行 `make dmg`。
 
 版本来自 `Resources/Info.plist`。签名、公证与发布步骤见 [发布说明](docs/RELEASING.md)。
 
