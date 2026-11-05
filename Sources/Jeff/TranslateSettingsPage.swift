@@ -3,6 +3,7 @@ import SwiftUI
 struct TranslateSettingsPage: View {
     @ObservedObject private var coordinator = AdvisorCoordinator.shared
     @State private var axTrusted = false
+    @State private var showsDockShortcutWarning = false
     @AppStorage("quietMode") private var quietMode = false
     @AppStorage("autoCopyOutput") private var autoCopy = false
     @AppStorage("saveHistory") private var saveHistory = false
@@ -74,6 +75,11 @@ struct TranslateSettingsPage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
+        .alert("此快捷键由 macOS 使用", isPresented: $showsDockShortcutWarning) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("⌥⌘D 会切换程序坞的自动隐藏，不能用于 Jeff。请使用其他组合，例如 ⌥D。原有快捷键保持不变。")
+        }
         .onAppear {
             axTrusted = SelectionCapture.isTrusted(prompt: false)
             coordinator.needsAccessibilityPermission = !axTrusted
@@ -115,7 +121,14 @@ struct TranslateSettingsPage: View {
 
             ShortcutRecorder(
                 shortcut: shortcut, isEnabled: onRecord != nil,
-                label: title, onRecord: { onRecord?($0) }
+                label: title,
+                onRecord: { recorded in
+                    guard recorded?.conflictsWithDock != true else {
+                        showsDockShortcutWarning = true
+                        return
+                    }
+                    onRecord?(recorded)
+                }
             )
             .frame(width: 190, height: 28)
             .help(onRecord == nil ? "此功能暂未接入" : "点击录制快捷键，Esc 取消；点击 × 清除")
