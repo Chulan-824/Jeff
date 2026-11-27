@@ -85,7 +85,7 @@ jobs:
           hdiutil verify "Jeff-${{ steps.version.outputs.version }}-macos-arm64.dmg"
           shasum -a 256 -c SHA256SUMS.txt
 
-      - name: 上传附件并发布预览版
+      - name: 上传附件并发布为 Latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -96,13 +96,11 @@ jobs:
             "dist/Jeff-${JEFF_VERSION}-macos-arm64.dmg" \
             dist/SHA256SUMS.txt \
             --target "$GITHUB_SHA" \
-            --title "Jeff ${JEFF_VERSION} · 未公证预览版" \
+            --title "🚀 Release ${JEFF_TAG}" \
             --generate-notes \
-            --notes "支持 macOS 14 及以上的 Apple Silicon Mac。此版本使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。" \
-            --draft \
-            --prerelease
+            --notes "**安装包未公证**。支持 macOS 14 及以上的 Apple Silicon Mac。此版本使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。" \
+            --draft
 
           gh release edit "$JEFF_TAG" \
             --draft=false \
-            --prerelease \
-            --latest=false
+            --latest
