@@ -14,6 +14,7 @@ final class AdvisorCoordinator: ObservableObject {
     @Published private(set) var legacyOutput = ""
     @Published private(set) var previousResult: AdviceRecord?
     @Published private(set) var isResultComplete = false
+    @Published private(set) var isRecognizing = false
     @Published private(set) var isStreaming = false
     @Published var errorMessage: String?
     @Published private(set) var statusMessage: String?
@@ -139,13 +140,14 @@ final class AdvisorCoordinator: ObservableObject {
             self.isCapturing = false
             guard self.requestID == captureID else { return }
             switch outcome {
+            case .awaitingScreenPermission:
+                return
             case .cancelled:
                 sourceApplication?.activate(options: [])
                 if panelWasVisible { self.panel?.showNearMouse(activate: false) }
                 if hudWasVisible { self.hud?.showNearMouse(activate: false) }
-            case .text(let text):
-                self.begin(text: text, source: source, kind: .screenshot)
-                self.startStreaming()
+            case .image(let image):
+                self.recognize(image, source: source)
             case .failed(let message):
                 self.begin(text: "", source: source, kind: .screenshot)
                 self.errorMessage = message
@@ -153,21 +155,63 @@ final class AdvisorCoordinator: ObservableObject {
         }
     }
 
+    private func recognize(_ image: CGImage, source: String) {
+        begin(text: "", source: source, kind: .screenshot)
+        isRecognizing = true
+        let id = requestID
+        streamTask = Task {
+            do {
+                let text = try await AppleOCR.recognize(image).trimmingCharacters(
+                    in: .whitespacesAndNewlines)
+                guard id == requestID else { return }
+                isRecognizing = false
+                guard !text.isEmpty else {
+                    errorMessage = "未识别到文字，请框选包含文字的区域。"
+                    return
+                }
+                selectedText = text
+                startStreaming()
+            } catch {
+                guard id == requestID else { return }
+                isRecognizing = false
+                errorMessage = "文字识别失败，请重新截图。"
+            }
+        }
+    }
+
     func trigger() {
+        guard !isCapturing else { return }
+        let app = NSWorkspace.shared.frontmostApplication
         let source = frontmostApp()
         needsAccessibilityPermission = !SelectionCapture.isTrusted(prompt: false)
-        guard let text = SelectionCapture.grabSelectedText(),
-            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            begin(text: "", source: source, kind: .selection)
-            errorMessage =
-                needsAccessibilityPermission
-                ? "无法取词。请授权辅助功能，或使用剪贴板处理。"
-                : "没有捕获到选中内容，请先划选文字，或使用剪贴板处理。"
-            return
+        cancelStreaming()
+        let captureID = requestID
+        isCapturing = true
+        streamTask = Task {
+            defer { isCapturing = false }
+            var selection: String?
+            if let app {
+                selection = await SelectionCapture.grabSelectedText(from: app.processIdentifier)
+            }
+            guard captureID == requestID, !Task.isCancelled else { return }
+            if let app,
+                NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier
+            {
+                return
+            }
+            guard let text = selection,
+                !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                begin(text: "", source: source, kind: .selection)
+                errorMessage =
+                    needsAccessibilityPermission
+                    ? "无法取词。请授权辅助功能，或使用剪贴板处理。"
+                    : "没有捕获到选中内容，请先划选文字，或使用剪贴板处理。"
+                return
+            }
+            begin(text: text, source: source, kind: .selection)
+            startStreaming()
         }
-        begin(text: text, source: source, kind: .selection)
-        startStreaming()
     }
 
     func triggerClipboard() {
@@ -219,6 +263,8 @@ final class AdvisorCoordinator: ObservableObject {
 
     private func cancelStreaming() {
         requestID = UUID()
+        SnipController.shared.cancel()
+        isRecognizing = false
         streamTask?.cancel()
         hideTask?.cancel()
         isStreaming = false
