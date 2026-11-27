@@ -22,13 +22,13 @@ Jeff 是一个 macOS 菜单栏沟通助手。选中文字、框选聊天截图�
 
 首版支持 **macOS 14 及以上、Apple Silicon 芯片**。暂不提供 Intel 版本。
 
-[下载预览版](https://github.com/Chulan-824/Jeff/releases) · [反馈问题](https://github.com/Chulan-824/Jeff/issues)
+[下载最新版本（安装包未公证）](https://github.com/Chulan-824/Jeff/releases/latest) · [反馈问题](https://github.com/Chulan-824/Jeff/issues)
 
 下载并双击 `Jeff-版本号-macos-arm64.dmg`，在打开的安装窗口中，将左侧的 `Jeff.app` 拖到右侧“Applications”文件夹。复制完成后，从“应用程序”打开 Jeff，再推出安装磁盘。启动后常驻菜单栏，可从图标菜单进入设置。
 
 更新前请先退出正在运行的 Jeff；Finder 提示同名应用时，确认后替换。旧版 Release 的 ZIP 仍需解压后手动将应用拖入“应用程序”。
 
-当前发布的是预览版，使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。macOS 可能阻止首次打开。确认下载来源后，可按系统“隐私与安全性”中的提示处理；若组织策略禁止运行，请遵循设备管理要求。
+当前安装包使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。macOS 可能阻止首次打开。确认下载来源后，可按系统“隐私与安全性”中的提示处理；若组织策略禁止运行，请遵循设备管理要求。
 
 安装包不包含 API Key。首次使用需要配置自己的模型服务，相关调用费用由服务提供方收取。
 

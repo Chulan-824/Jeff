@@ -1,6 +1,6 @@
 # 发布 Jeff
 
-当前下载包面向 macOS 14 及以上的 Apple Silicon Mac。首版为未公证预览版，请在 Release 标题、说明和下载入口中保留这一信息。
+当前下载包面向 macOS 14 及以上的 Apple Silicon Mac。请在 Release 说明和下载入口中标明“安装包未公证”。
 
 ## 本地打包
 
@@ -36,7 +36,7 @@
 
 ## GitHub Release
 
-在发布 PR 中更新 `Resources/Info.plist` 的版本号。该文件的更改合入 `main` 后，GitHub Actions 读取应用版本、构建 DMG，并在合并提交上创建对应的版本标签和预览版。手动运行工作流时可以指定版本号，推送 `v*` 标签时工作流使用标签版本。
+在发布 PR 中更新 `Resources/Info.plist` 的版本号。该文件的更改合入 `main` 后，GitHub Actions 读取应用版本、构建 DMG，并在合并提交上创建对应的版本标签和正式版。手动运行工作流时可以指定版本号，推送 `v*` 标签时工作流使用标签版本。
 
 Release 说明记录支持平台、变更、签名状态和已知限制，上传以下附件：
 
@@ -45,7 +45,7 @@ Jeff-版本号-macos-arm64.dmg
 SHA256SUMS.txt
 ```
 
-先创建草稿并上传全部附件，再发布。未公证版本勾选 Pre-release。GitHub 自动生成的 Source code ZIP 是源码，不是可直接运行的应用安装包。
+工作流先创建草稿并上传全部附件，再将正式版标记为 `Latest`。仓库首页显示 Release 标题，例如 `🚀 Release v1.0.3`。GitHub 自动生成的 Source code ZIP 是源码，不是可直接运行的应用安装包。
 
 发布后从 Release 页面实际下载 DMG，核对文件摘要、安装窗口和复制到“应用程序”后的签名。人工验收不需要向模型发送私人内容，可以使用自拟示例。
 
@@ -61,4 +61,4 @@ make package \
 
 随后对生成的 DMG 使用同一 Developer ID Application 证书执行 `codesign --sign "Developer ID Application: Your Name (TEAMID)" --timestamp dist/Jeff-版本号-macos-arm64.dmg`，再使用 Apple 的 `notarytool` 提交该 DMG。公证成功后，对 DMG 执行 `stapler staple` 和 `stapler validate`，更新 `SHA256SUMS.txt`，再上传最终 DMG。不要在公证后重新执行 `make package`，以免覆盖已签名和附加公证票据的 DMG。当前 `make package` 不会自动签名 DMG 或公证，请勿将仅完成应用签名的包描述为已公证。
 
-签名私钥和公证凭据只留在受控的本机钥匙串或发布环境 Secrets 中，不放入源码、Release 附件或日志。正式发行前还需在干净环境核对 Hardened Runtime 下的取词、截图和权限行为。
+签名私钥和公证凭据只留在受控的本机钥匙串或发布环境 Secrets 中，不放入源码、Release 附件或日志。分发 Developer ID 签名包前，还需在干净环境核对 Hardened Runtime 下的取词、截图和权限行为。
