@@ -3,7 +3,7 @@ import ApplicationServices
 
 /// Captures the currently selected text in the frontmost app.
 ///
-/// Strategy (same as Bob):
+/// Strategy:
 /// 1. Accessibility API — read `AXSelectedText` of the focused element.
 ///    Requires Accessibility permission (TCC), asked once via `isTrusted(prompt:)`.
 /// 2. Clipboard fallback — snapshot the pasteboard, simulate ⌘C, read, restore.
@@ -20,72 +20,83 @@ enum SelectionCapture {
         NSWorkspace.shared.open(url)
     }
 
-    /// Returns selected text, or nil when nothing is selected / capture failed.
-    static func grabSelectedText() -> String? {
-        if let text = axSelectedText(), !text.isEmpty {
-            return text
-        }
-        return clipboardGrab()
+    static func grabSelectedText(from pid: pid_t) async -> String? {
+        if let text = axSelectedText(from: pid), !text.isEmpty { return text }
+        guard !Task.isCancelled, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        else { return nil }
+        return await clipboardGrab(from: pid)
     }
 
-    private static func axSelectedText() -> String? {
-        let system = AXUIElementCreateSystemWide()
+    private static func axSelectedText(from pid: pid_t) -> String? {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
         var focusedObj: AnyObject?
         guard
             AXUIElementCopyAttributeValue(
-                system, kAXFocusedUIElementAttribute as CFString, &focusedObj
-            ) == .success, let focused = focusedObj
+                app, kAXFocusedUIElementAttribute as CFString, &focusedObj
+            ) == .success, let focusedObj, CFGetTypeID(focusedObj) == AXUIElementGetTypeID()
         else { return nil }
 
+        let focused = focusedObj as! AXUIElement
+        AXUIElementSetMessagingTimeout(focused, 0.25)
         var value: AnyObject?
         guard
             AXUIElementCopyAttributeValue(
-                focused as! AXUIElement, kAXSelectedTextAttribute as CFString, &value
+                focused, kAXSelectedTextAttribute as CFString, &value
             ) == .success
         else { return nil }
-
-        if let text = value as? String { return text }
-        if let attr = value as? NSAttributedString { return attr.string }
-        return nil
+        return value as? String ?? (value as? NSAttributedString)?.string
     }
 
-    private static func clipboardGrab() -> String? {
+    private static func clipboardGrab(from pid: pid_t) async -> String? {
         let pb = NSPasteboard.general
         let oldCount = pb.changeCount
-        let oldItems =
-            pb.pasteboardItems?.compactMap { item -> (String, Data)? in
-                guard let type = item.types.first, let data = item.data(forType: type) else {
+        var backup: [NSPasteboardItem] = []
+        for item in pb.pasteboardItems ?? [] {
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                guard let data = item.data(forType: type), copy.setData(data, forType: type) else {
                     return nil
                 }
-                return (type.rawValue, data)
-            } ?? []
-
-        simulateCopy()
-        // Give the target app a moment to write the pasteboard.
-        usleep(120_000)
-
-        // If ⌘C did not change the pasteboard, nothing was copied — never send
-        // stale clipboard contents to the model.
-        guard pb.changeCount != oldCount,
-            let text = pb.string(forType: .string), !text.isEmpty
-        else { return nil }
-
-        // Restore previous clipboard contents.
-        pb.clearContents()
-        for (type, data) in oldItems {
-            pb.setData(data, forType: NSPasteboard.PasteboardType(type))
+            }
+            backup.append(copy)
         }
-        return text
+
+        guard !Task.isCancelled, pb.changeCount == oldCount,
+            NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        else { return nil }
+        simulateCopy(to: pid)
+        // Finish the clipboard transaction even if the originating request is cancelled.
+        return await Task.detached(priority: .userInitiated) {
+            let deadline = ContinuousClock.now + .milliseconds(120)
+            while true {
+                let count = pb.changeCount
+                if count != oldCount {
+                    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+                    else { return nil }
+                    // Some apps clear the pasteboard before publishing the text.
+                    let text = pb.string(forType: .string)
+                    if text != nil || ContinuousClock.now >= deadline {
+                        guard pb.changeCount == count else { return nil }
+                        pb.clearContents()
+                        if !backup.isEmpty { pb.writeObjects(backup) }
+                        return text
+                    }
+                }
+                guard ContinuousClock.now < deadline else { return nil }
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+        }.value
     }
 
-    private static func simulateCopy() {
+    private static func simulateCopy(to pid: pid_t) {
         let src = CGEventSource(stateID: .hidSystemState)
         let vKeyC: CGKeyCode = 0x08
         let down = CGEvent(keyboardEventSource: src, virtualKey: vKeyC, keyDown: true)
         let up = CGEvent(keyboardEventSource: src, virtualKey: vKeyC, keyDown: false)
         down?.flags = .maskCommand
         up?.flags = .maskCommand
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
+        down?.postToPid(pid)
+        up?.postToPid(pid)
     }
 }

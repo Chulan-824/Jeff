@@ -89,7 +89,9 @@ struct AdvisorView: View {
 
     @ViewBuilder
     private var original: some View {
-        if editsOriginal || coordinator.selectedText.isEmpty {
+        if coordinator.isRecognizing {
+            ProgressView("正在识别文字…").controlSize(.small)
+        } else if editsOriginal || coordinator.selectedText.isEmpty {
             AdviceInputEditor(
                 text: coordinator.selectedText, isNewInput: coordinator.selectedText.isEmpty,
                 onApply: { text in

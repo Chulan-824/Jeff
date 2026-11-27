@@ -15,9 +15,13 @@ struct AdvisorHUD: View {
             if let error = coordinator.errorMessage {
                 Text(error).font(.callout).foregroundStyle(.orange).lineLimit(3)
             }
-            Text(coordinator.primaryText.isEmpty ? "正在准备结果…" : coordinator.primaryText)
-                .font(.callout).lineLimit(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(
+                coordinator.isRecognizing
+                    ? "正在识别文字…"
+                    : (coordinator.primaryText.isEmpty ? "正在准备结果…" : coordinator.primaryText)
+            )
+            .font(.callout).lineLimit(4)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let message = coordinator.statusMessage {
                 Text(message).font(.caption).foregroundStyle(.secondary)
             }

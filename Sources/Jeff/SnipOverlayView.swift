@@ -1,81 +1,65 @@
 import AppKit
+import QuartzCore
 
-/// Fullscreen dimmed layer showing the captured screenshot.
-/// User drags a rect; Esc cancels. Mirrors Bob's SnipViewController role.
 final class SnipOverlayView: NSView {
     var onFinish: ((NSRect) -> Void)?
     var onCancel: (() -> Void)?
 
-    private let screenshot: NSImage?
-    private var startPoint = NSPoint.zero
-    private var currentPoint = NSPoint.zero
-    private var dragging = false
+    private let screenshot = CALayer()
+    private let maskLayer = CAShapeLayer()
+    private var startPoint: CGPoint?
 
-    init(frame: NSRect, screenshot: NSImage?) {
-        self.screenshot = screenshot
+    override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
+        screenshot.frame = bounds
+        screenshot.actions = ["contents": NSNull()]
+        maskLayer.frame = bounds
+        maskLayer.fillRule = .evenOdd
+        maskLayer.fillColor = NSColor.black.withAlphaComponent(0.45).cgColor
+        maskLayer.strokeColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        maskLayer.lineWidth = 1.5
+        maskLayer.actions = ["path": NSNull()]
+        layer?.addSublayer(screenshot)
+        layer?.addSublayer(maskLayer)
+        updateMask(selection: .zero)
     }
+
     required init?(coder: NSCoder) { nil }
 
-    private var selection: NSRect {
-        guard dragging else { return .zero }
-        return NSRect(
-            x: min(startPoint.x, currentPoint.x),
-            y: min(startPoint.y, currentPoint.y),
-            width: abs(currentPoint.x - startPoint.x),
-            height: abs(currentPoint.y - startPoint.y)
-        )
+    func show(_ image: CGImage) { screenshot.contents = image }
+
+    private func selection(to point: CGPoint) -> CGRect {
+        guard let startPoint else { return .zero }
+        return CGRect(
+            x: min(startPoint.x, point.x), y: min(startPoint.y, point.y),
+            width: abs(point.x - startPoint.x), height: abs(point.y - startPoint.y)
+        ).intersection(bounds)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        if let screenshot {
-            screenshot.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1.0)
-        }
-        NSColor.black.withAlphaComponent(0.45).setFill()
-        bounds.fill()
-
-        let sel = selection
-        if !sel.isEmpty {
-            // Cut a clear hole for the selected region, then re-draw the
-            // screenshot portion at full brightness inside it.
-            let clear = NSBezierPath(rect: sel)
-            NSColor.clear.setFill()
-            clear.fill()
-            if let screenshot {
-                screenshot.draw(in: sel, from: sel, operation: .sourceOver, fraction: 1.0)
-            }
-            NSColor.white.withAlphaComponent(0.9).setStroke()
-            let border = NSBezierPath(rect: sel)
-            border.lineWidth = 1.5
-            border.stroke()
-        }
+    private func updateMask(selection: CGRect) {
+        let path = CGMutablePath()
+        path.addRect(bounds.insetBy(dx: -2, dy: -2))
+        if !selection.isEmpty { path.addRect(selection) }
+        maskLayer.path = path
     }
 
     override func mouseDown(with event: NSEvent) {
         startPoint = convert(event.locationInWindow, from: nil)
-        currentPoint = startPoint
-        dragging = true
-        needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
-        currentPoint = convert(event.locationInWindow, from: nil)
-        needsDisplay = true
+        updateMask(selection: selection(to: convert(event.locationInWindow, from: nil)))
     }
 
     override func mouseUp(with event: NSEvent) {
-        currentPoint = convert(event.locationInWindow, from: nil)
-        let sel = selection
-        dragging = false
-        if sel.width >= 8 && sel.height >= 8 {
-            onFinish?(sel)
-        } else {
-            onCancel?()  // click without drag = cancel
-        }
+        let rect = selection(to: convert(event.locationInWindow, from: nil))
+        startPoint = nil
+        if rect.width >= 8 && rect.height >= 8 { onFinish?(rect) } else { onCancel?() }
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { onCancel?() }  // Esc
+        if event.keyCode == 53 { onCancel?() } else { super.keyDown(with: event) }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
